@@ -56,9 +56,51 @@
       return;
     }
 
-    // Example from burner.txt:
-    // {"type":"image", "url":"https://imagine-public.x.ai/...", "prompt":"a church", ...}
-    if (!obj || obj.type !== 'image' || !obj.url) return;
+    if (!obj || !obj.type) return;
+
+    // Progress / completion messages: JSON status with percentage + id
+    if (
+      obj.type === 'json' &&
+      typeof obj.percentage_complete === 'number' &&
+      (obj.image_id || obj.job_id)
+    ) {
+      const imageId = obj.image_id || obj.id || null;
+      const key = imageId || obj.job_id;
+      if (!key) return;
+
+      let record = recordsByKey.get(key) || null;
+      if (!record) {
+        record = {
+          url: null,
+          prompt: obj.prompt || obj.full_prompt || '',
+          id: imageId || obj.job_id || '',
+          ts: Date.now(),
+          dataHash: null,
+          imageId,
+          pct: obj.percentage_complete,
+          autoDownloaded: false,
+          autoDownloadScheduled: false
+        };
+        discoveredImages.push(record);
+        if (record.imageId) {
+          recordsById.set(record.imageId, record);
+        }
+        recordsByKey.set(key, record);
+        incrementCapturedCount();
+      } else {
+        record.pct = obj.percentage_complete;
+      }
+
+      // Only consider auto-download when we already know the URL.
+      if (record.url) {
+        maybeAutoDownload(record);
+      }
+
+      return;
+    }
+
+    // Image payload messages with actual URLs / blobs
+    if (obj.type !== 'image' || !obj.url) return;
 
     const pct =
       typeof obj.percentage_complete === 'number' ? obj.percentage_complete : null;
@@ -119,7 +161,9 @@
       record.prompt = obj.prompt || obj.full_prompt || record.prompt;
       record.dataHash = dataHash || record.dataHash;
       record.imageId = imageId || record.imageId;
-      record.pct = pct;
+      if (pct !== null) {
+        record.pct = pct;
+      }
     } else {
       record = {
         url: obj.url,
@@ -612,25 +656,20 @@
 
     // Only auto-download when we have a "final-ish" image; intermediate
     // progress frames (e.g. 0%, 50%) are ignored for auto-download.
-    if (typeof record.pct === 'number' && record.pct < 100) return;
+    if (typeof record.pct !== 'number' || record.pct < 100) return;
 
     // Avoid scheduling multiple downloads for the same image.
     if (record.autoDownloaded || record.autoDownloadScheduled) return;
     record.autoDownloadScheduled = true;
 
-    // Delay auto-download slightly so the public image URL has time
-    // to become available on the CDN. No retries or fallbacks – just
-    // a one-time delay before attempting the download.
-    const delayMs = 2000;
-    setTimeout(() => {
-      if (!autoDownloadEnabled) return;
-      try {
-        triggerAutoDownload(record);
-        record.autoDownloaded = true;
-      } catch (e) {
-        console.warn('[TM] Auto-download failed', e);
-      }
-    }, delayMs);
+    // No blind delay: we trust the server's completion status and
+    // fire a single auto-download once it reports 100%.
+    try {
+      triggerAutoDownload(record);
+      record.autoDownloaded = true;
+    } catch (e) {
+      console.warn('[TM] Auto-download failed', e);
+    }
   }
 
   function addImageToList(record) {
