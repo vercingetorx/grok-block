@@ -14,7 +14,7 @@
 
   chrome.storage.local.get(defaults, (state) => {
     settings = { ...defaults, ...state };
-    console.log('[GrokHelper] content script settings', settings);
+    console.log('[GrokBlock] content script settings', settings);
     sendSettingsToPage();
   });
 
@@ -28,7 +28,7 @@
       }
     });
     if (needsUpdate) {
-      console.log('[GrokHelper] settings updated', settings);
+      console.log('[GrokBlock] settings updated', settings);
       sendSettingsToPage();
     }
   });
@@ -44,7 +44,7 @@
   function sendSettingsToPage() {
     window.postMessage(
       {
-        source: 'GrokHelperExt',
+        source: 'GrokBlockExt',
         type: 'settings',
         payload: settings
       },
@@ -55,7 +55,7 @@
   // Listen for messages from the injected page script
   window.addEventListener('message', (event) => {
     const data = event.data;
-    if (!data || data.source !== 'GrokHelperPage') return;
+    if (!data || data.source !== 'GrokBlockPage') return;
 
     if (data.type === 'ready') {
       // Page script is ready to receive settings; send current state.
@@ -68,11 +68,11 @@
       chrome.runtime.sendMessage({ type: 'download', url, filename }, (resp) => {
         if (chrome.runtime.lastError) {
           console.warn(
-            '[GrokHelper] download error',
+            '[GrokBlock] download error',
             chrome.runtime.lastError.message
           );
         } else if (resp && resp.ok === false) {
-          console.warn('[GrokHelper] download error', resp.error);
+          console.warn('[GrokBlock] download error', resp.error);
         }
       });
     }
