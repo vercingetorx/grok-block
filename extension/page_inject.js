@@ -63,7 +63,7 @@
         this.__grokHelperPageHooked = true;
         try {
           this.addEventListener('message', (evt) => {
-            decodeData(evt.data, handleImageMessage);
+            decodeData(evt.data, handleServerMessage);
           });
         } catch (_) {}
       }
@@ -168,7 +168,7 @@
     return 'h' + (hash >>> 0).toString(36);
   }
 
-  function handleImageMessage(text) {
+  function handleServerMessage(text) {
     if (!settings.downloaderEnabled) return;
     if (!text) return;
     let obj = null;
@@ -177,7 +177,44 @@
     } catch (_) {
       return;
     }
-    if (!obj || obj.type !== 'image' || !obj.url) return;
+    if (!obj || !obj.type) return;
+
+    // Progress / completion messages (no image payload, but percentage + ids)
+    if (
+      obj.type === 'json' &&
+      typeof obj.percentage_complete === 'number' &&
+      (obj.image_id || obj.job_id)
+    ) {
+      const imageId = obj.image_id || obj.id || null;
+      const key = imageId || obj.job_id;
+      if (!key) return;
+
+      let record = recordsByKey.get(key) || null;
+      if (!record) {
+        record = {
+          url: null,
+          prompt: obj.prompt || obj.full_prompt || '',
+          dataHash: null,
+          imageId,
+          pct: obj.percentage_complete,
+          autoDownloaded: false,
+          autoDownloadScheduled: false
+        };
+        discoveredImages.push(record);
+        recordsByKey.set(key, record);
+      } else {
+        record.pct = obj.percentage_complete;
+      }
+
+      // Only attempt auto-download if we already know the URL.
+      if (record.url) {
+        maybeAutoDownload(record);
+      }
+      return;
+    }
+
+    // Image payload messages
+    if (obj.type !== 'image' || !obj.url) return;
 
     let dataUrl = null;
     if (typeof obj.src === 'string' && obj.src.startsWith('data:')) {
@@ -225,7 +262,9 @@
       record.prompt = obj.prompt || obj.full_prompt || record.prompt;
       record.dataHash = dataHash;
       record.imageId = imageId || record.imageId;
-      record.pct = pct;
+      if (pct !== null) {
+        record.pct = pct;
+      }
       recordsByHash.set(dataHash, record);
     } else {
       record = {
@@ -248,20 +287,17 @@
 
   function maybeAutoDownload(record) {
     if (!settings.downloaderEnabled || !settings.autoDownload) return;
-    if (typeof record.pct === 'number' && record.pct < 100) return;
+    if (!record.url) return;
+    // Only auto-download once the server reports the image as complete.
+    if (typeof record.pct !== 'number' || record.pct < 100) return;
     if (record.autoDownloaded || record.autoDownloadScheduled) return;
     record.autoDownloadScheduled = true;
-
-    const delayMs = 2000;
-    setTimeout(() => {
-      if (!settings.downloaderEnabled || !settings.autoDownload) return;
-      try {
-        requestDownload(record.url, buildFilename(record));
-        record.autoDownloaded = true;
-      } catch (e) {
-        // console.warn('[GrokBlockPage] Auto-download failed', e);
-      }
-    }, delayMs);
+    try {
+      requestDownload(record.url, buildFilename(record));
+      record.autoDownloaded = true;
+    } catch (e) {
+      // console.warn('[GrokBlockPage] Auto-download failed', e);
+    }
   }
 
   function buildFilename(record) {
