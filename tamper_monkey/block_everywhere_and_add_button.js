@@ -12,7 +12,7 @@
 
   const originalSend = WebSocket.prototype.send;
 
-  // Store the last scroll-generated request from the main page
+  // Store the last scroll-generated request from the current imagine page
   let lastScrollRequest = null;
 
   function onPostPage() {
@@ -58,16 +58,11 @@
           obj.item.content[0].type === 'input_scroll';
 
         if (isInputScroll) {
-          if (onPostPage()) {
-            // Hard block on post pages (no auto-similars there)
-            console.log('[TM] BLOCK input_scroll on post page', obj);
-            return;
-          }
-
-          if (onMainPage()) {
-            // On main page, capture instead of sending automatically
+          if (onPostPage() || onMainPage()) {
+            // On main or post pages, capture instead of sending automatically.
+            // The manual button will send this scroll in the current context.
             lastScrollRequest = { ws: this, data };
-            console.log('[TM] CAPTURE input_scroll on main page', obj);
+            console.log('[TM] CAPTURE input_scroll on imagine page', obj);
             return;
           }
 
@@ -90,15 +85,15 @@
     style.textContent = `
       #grok-manual-generate-btn {
         position: fixed;
-        bottom: 16px;
-        right: 16px;
-        padding: 10px 18px;
+        bottom: 80px;
+        right: 24px;
+        padding: 12px 10px;
         font-size: 14px;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #ffffff;
         background: #1e88e5;
         border: none;
-        border-radius: 999px;
+        border-radius: 10px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
         cursor: pointer;
         z-index: 99999;
@@ -126,7 +121,7 @@
 
   // Add a manual "Generate more" button on the main page
   function addButton() {
-    if (!onMainPage()) return;
+    if (!onMainPage() && !onPostPage()) return;
 
     injectStyles();
 
