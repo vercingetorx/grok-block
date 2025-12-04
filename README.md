@@ -1,5 +1,6 @@
 ### Moved all functionality into an extension. It is cleaner and easier to toggle functionality on and off. Use the tamper monkey scripts if you prefer not installing this as an extension. The descriptions of functionality applies to the extension as well.
 
+----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 TAMPER MONKEY INFO:
 `block_on_posts_only.js` is a simple script for the tampermonkey extension to block image auto generation for Grok Imagine on posts only. 
