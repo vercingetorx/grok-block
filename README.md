@@ -10,9 +10,11 @@ from a chrome based browser, navigate to the extension settings page, enable dev
 
 TAMPER MONKEY INFO:
 
-`block_on_posts_only.js` is a simple script for the tampermonkey extension to block image auto generation for Grok Imagine on posts only. 
+`block_on_posts.js` is a simple script for the tampermonkey extension to block image auto generation for Grok Imagine on posts only. 
 
-`block_everywhere_and_add_button.js` does the same as the other script but also replaces the auto generate on scroll behavior for the main imagine page with an explicit button to generate more images. (it is visually a bit buggy currently and results in the accumulation of empty image frames at the bottom of the page)
+`block_everywhere.js` does the same as the other script but also replaces the auto generate on scroll behavior for the main imagine page.
+
+Both scripts replace autoscroll with an explicit button to generate more images. (it is visually a bit buggy currently and results in the accumulation of empty image frames at the bottom of the page)
 
 `image_downloader.js` adds download buttons so you never have to leave the main page and also provides an optional auto-download toggle.
 
