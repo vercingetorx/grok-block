@@ -1,4 +1,4 @@
-*I moved all functionality into an extension. It is cleaner and easier to toggle functionality on and off. Use the tamper monkey scripts if you prefer not installing this as an extenstion.*
+**I moved all functionality into an extension. It is cleaner and easier to toggle functionality on and off. Use the tamper monkey scripts if you prefer not installing this as an extenstion.**
 
 
 TAMPER MONKEY INFO (descriptions of functionality applies to the extenstion too):
