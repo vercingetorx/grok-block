@@ -1,5 +1,8 @@
 ### Moved all functionality into an extension. It is cleaner and easier to toggle functionality on and off and is more reliable. Use the tamper monkey scripts if you prefer not installing this as an extension. The descriptions of functionality applies to the extension as well.
 
+install:
+from a chrome based browser, navigate to the extension settings page, enable developer mode, choose "Load unpacked", select the extension directory.
+
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 TAMPER MONKEY INFO:
