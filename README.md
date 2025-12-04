@@ -7,3 +7,5 @@
 it is usually required to refresh the page once to activate the script(s) after first navigating to the imagine page. you can confirm it's running in the console.
 
 choose either `block_on_posts_only.js` or `block_everywhere_and_add_button.js`. `image_downloader.js` can be used in combination with either of the other scripts or on its own.
+
+working on an extension that packages all functionality.
