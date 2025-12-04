@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  console.log('[GrokHelperPage] injected');
+  console.log('[GrokBlockPage] injected');
 
   const defaults = {
     scrollMode: 'off', // 'off' | 'block-posts' | 'manual-main'
@@ -23,7 +23,7 @@
 
   window.addEventListener('message', (event) => {
     const data = event.data;
-    if (!data || data.source !== 'GrokHelperExt') return;
+    if (!data || data.source !== 'GrokBlockExt') return;
     if (data.type === 'settings' && data.payload) {
       settings = { ...settings, ...data.payload };
       // Update manual button whenever scroll mode changes
@@ -72,7 +72,7 @@
     };
 
     wsPatched = true;
-    // console.log('[GrokHelperPage] WebSocket patched');
+    // console.log('[GrokBlockPage] WebSocket patched');
   }
 
   function handleOutgoing(data, ws) {
@@ -110,7 +110,7 @@
 
     if (settings.scrollMode === 'block-posts') {
       if (isPostPage()) {
-        // console.log('[GrokHelperPage] Block input_scroll on post page', obj);
+        // console.log('[GrokBlockPage] Block input_scroll on post page', obj);
         return true;
       }
       return false;
@@ -121,7 +121,7 @@
         // Capture but do not send; manual button can send later
         lastScrollWs = ws;
         lastScrollData = data;
-        // console.log('[GrokHelperPage] Capture input_scroll (manual mode)', obj);
+        // console.log('[GrokBlockPage] Capture input_scroll (manual mode)', obj);
         return true;
       }
     }
@@ -259,7 +259,7 @@
         requestDownload(record.url, buildFilename(record));
         record.autoDownloaded = true;
       } catch (e) {
-        // console.warn('[GrokHelperPage] Auto-download failed', e);
+        // console.warn('[GrokBlockPage] Auto-download failed', e);
       }
     }, delayMs);
   }
@@ -290,7 +290,7 @@
     if (!url) return;
     window.postMessage(
       {
-        source: 'GrokHelperPage',
+        source: 'GrokBlockPage',
         type: 'download',
         payload: { url, filename }
       },
@@ -433,7 +433,7 @@
 
     manualBtn.addEventListener('click', () => {
       if (!lastScrollWs || !lastScrollData) {
-        // console.log('[GrokHelperPage] No captured input_scroll to send yet');
+        // console.log('[GrokBlockPage] No captured input_scroll to send yet');
         return;
       }
       if (!nativeSend) {
@@ -442,7 +442,7 @@
       try {
         nativeSend.call(lastScrollWs, lastScrollData);
       } catch (e) {
-        // console.warn('[GrokHelperPage] Failed to send captured scroll', e);
+        // console.warn('[GrokBlockPage] Failed to send captured scroll', e);
       }
       lastScrollWs = null;
       lastScrollData = null;
@@ -491,7 +491,7 @@
     try {
       window.postMessage(
         {
-          source: 'GrokHelperPage',
+          source: 'GrokBlockPage',
           type: 'ready'
         },
         '*'
