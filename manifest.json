@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Grok Helper",
+  "version": "0.1.0",
+  "description": "Control Grok imagine scrolling and download images directly.",
+  "permissions": ["downloads", "storage"],
+  "host_permissions": [
+    "https://grok.com/*",
+    "https://imagine-public.x.ai/*"
+  ],
+  "action": {
+    "default_title": "Grok Helper",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["page_inject.js"],
+      "matches": ["https://grok.com/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://grok.com/imagine*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
