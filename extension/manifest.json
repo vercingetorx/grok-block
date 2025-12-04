@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Grok Helper",
+  "name": "Grok Block",
   "version": "0.1.0",
   "description": "Control Grok imagine scrolling and download images directly.",
   "permissions": ["downloads", "storage"],
@@ -9,7 +9,7 @@
     "https://imagine-public.x.ai/*"
   ],
   "action": {
-    "default_title": "Grok Helper",
+    "default_title": "Grok Block",
     "default_popup": "popup.html"
   },
   "background": {
