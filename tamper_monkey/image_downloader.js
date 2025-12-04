@@ -297,13 +297,13 @@
         border: none;
         padding: 3px 6px;
         border-radius: 999px;
-        background: rgba(15, 118, 110, 0.9);
-        color: #ecfeff;
+        background: #1e88e5;
+        color: #f9fafb;
         cursor: pointer;
         font-size: 11px;
       }
       .grok-image-download-overlay button:hover {
-        background: rgba(13, 148, 136, 1);
+        background: #1565c0;
       }
     `;
     document.head.appendChild(style);
