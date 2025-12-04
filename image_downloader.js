@@ -10,9 +10,16 @@
 
   console.log('[TM] Grok image downloader script starting');
 
-  // Track discovered images to avoid duplicates
+  // Track discovered images for mapping and UI tally
   const discoveredImages = [];
-  const seenImageKeys = new Set();
+  const recordsById = new Map();
+  const recordsByKey = new Map();
+  let capturedCount = 0;
+  let capturedCountEl = null;
+
+  // Queue of image records that have been seen from the WebSocket
+  // but not yet associated with a tile/button in the DOM.
+  const unboundRecords = [];
 
   function decodeData(data, cb) {
     if (typeof data === 'string') {
@@ -53,13 +60,8 @@
     // {"type":"image", "url":"https://imagine-public.x.ai/...", "prompt":"a church", ...}
     if (!obj || obj.type !== 'image' || !obj.url) return;
 
-    // The server may send intermediate progress messages (e.g. 0%, 50%, 100%).
-    // Keep only "final" images: percentage_complete == null or 100.
     const pct =
       typeof obj.percentage_complete === 'number' ? obj.percentage_complete : null;
-    if (pct !== null && pct < 100) {
-      return;
-    }
 
     console.log(
       '[TM] Grok image message seen',
@@ -69,26 +71,88 @@
       pct
     );
 
-    const record = {
-      url: obj.url,
-      prompt: obj.prompt || obj.full_prompt || '',
-      id: obj.id || obj.job_id || '',
-      ts: Date.now(),
-      blob: obj.blob || null
-    };
-
-    const key = record.id || record.url;
-    if (key && seenImageKeys.has(key)) {
-      // Duplicate "final" message for the same image; ignore to prevent UI clutter
-      return;
-    }
-    if (key) {
-      seenImageKeys.add(key);
+    // Build a stable data URL representation (or equivalent) so we can
+    // derive a hash that matches what the DOM uses for <img src="...">.
+    let dataUrl = null;
+    if (typeof obj.src === 'string' && obj.src.startsWith('data:')) {
+      dataUrl = obj.src;
+    } else if (typeof obj.blob === 'string' && obj.blob.length > 0) {
+      if (obj.blob.startsWith('data:')) {
+        dataUrl = obj.blob;
+      } else {
+        // Prefix is irrelevant for hashing; the base64 content is what matters.
+        dataUrl = 'data:image/jpeg;base64,' + obj.blob;
+      }
     }
 
-    discoveredImages.push(record);
-    addImageToList(record);
+    const dataHash = dataUrl ? computeDataHash(dataUrl) : null;
+
+    let blobPrefix = null;
+    if (typeof obj.blob === 'string' && obj.blob.length > 0) {
+      const commaIdx = obj.blob.indexOf(',');
+      const base = commaIdx >= 0 ? obj.blob.slice(commaIdx + 1) : obj.blob;
+      blobPrefix = base.slice(0, 256);
+    }
+
+    const imageId =
+      obj.id ||
+      obj.image_id ||
+      (obj.url
+        ? (() => {
+            try {
+              const u = new URL(obj.url);
+              const parts = u.pathname.split('/').filter(Boolean);
+              const last = parts[parts.length - 1] || '';
+              return last.split('.')[0] || null;
+            } catch (_) {
+              return null;
+            }
+          })()
+        : null);
+
+    const key = imageId || obj.job_id || obj.url || dataHash;
+    let record = key ? recordsByKey.get(key) || null : null;
+
+    if (record) {
+      // Update existing record with the latest info (e.g. pct or url changes)
+      record.url = obj.url || record.url;
+      record.prompt = obj.prompt || obj.full_prompt || record.prompt;
+      record.dataHash = dataHash || record.dataHash;
+      record.imageId = imageId || record.imageId;
+      record.pct = pct;
+    } else {
+      record = {
+        url: obj.url,
+        prompt: obj.prompt || obj.full_prompt || '',
+        id: imageId || obj.job_id || '',
+        ts: Date.now(),
+        dataHash,
+        imageId,
+        pct,
+        autoDownloaded: false,
+        autoDownloadScheduled: false
+      };
+
+      discoveredImages.push(record);
+      unboundRecords.push(record);
+      if (record.imageId) {
+        recordsById.set(record.imageId, record);
+      }
+      if (key) {
+        recordsByKey.set(key, record);
+      }
+      incrementCapturedCount();
+    }
+
     maybeAutoDownload(record);
+
+    // Re-scan the DOM now that we have a new image record, so tiles
+    // that were rendered before this WS message can still get buttons.
+    try {
+      scanForImageTiles();
+    } catch (e) {
+      console.warn('[TM] Error while rescanning tiles after image message', e);
+    }
   }
 
   function hookSocket(ws) {
@@ -126,6 +190,7 @@
   // ---------------------------
 
   let autoDownloadEnabled = false;
+  let domObserverStarted = false;
 
   function ensureStyles() {
     if (document.getElementById('grok-image-downloader-style')) return;
@@ -152,9 +217,9 @@
       }
       #grok-image-downloader-header {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 6px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
       }
       #grok-image-downloader-title {
         font-size: 12px;
@@ -220,6 +285,26 @@
       .grok-image-downloader-download:hover {
         background: #1d4ed8;
       }
+      .grok-image-download-overlay {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      .grok-image-download-overlay button {
+        pointer-events: auto;
+        border: none;
+        padding: 3px 6px;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.9);
+        color: #ecfeff;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      .grok-image-download-overlay button:hover {
+        background: rgba(13, 148, 136, 1);
+      }
     `;
     document.head.appendChild(style);
   }
@@ -239,8 +324,6 @@
     title.id = 'grok-image-downloader-title';
     title.textContent = 'Grok image downloads';
 
-    const controls = document.createElement('div');
-
     const toggleLabel = document.createElement('label');
     toggleLabel.id = 'grok-image-downloader-toggle';
 
@@ -256,41 +339,125 @@
 
     toggleLabel.appendChild(toggleInput);
     toggleLabel.appendChild(toggleText);
-
-    const clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.textContent = 'Clear';
-    clearBtn.style.marginLeft = '8px';
-    clearBtn.style.fontSize = '11px';
-    clearBtn.style.padding = '3px 8px';
-    clearBtn.style.borderRadius = '999px';
-    clearBtn.style.border = 'none';
-    clearBtn.style.cursor = 'pointer';
-    clearBtn.style.background = '#374151';
-    clearBtn.style.color = '#e5e7eb';
-    clearBtn.addEventListener('click', () => {
-      const listEl = document.getElementById('grok-image-downloader-list');
-      if (listEl) {
-        listEl.innerHTML = '';
-      }
-      discoveredImages.length = 0;
-      seenImageKeys.clear();
-      console.log('[TM] Cleared Grok image list');
-    });
-
-    controls.appendChild(toggleLabel);
-    controls.appendChild(clearBtn);
-
     header.appendChild(title);
-    header.appendChild(controls);
+    header.appendChild(toggleLabel);
 
-    const list = document.createElement('ul');
-    list.id = 'grok-image-downloader-list';
+    const counter = document.createElement('div');
+    counter.id = 'grok-image-downloader-counter';
+    counter.textContent = 'Captured: 0';
+    capturedCountEl = counter;
 
     panel.appendChild(header);
-    panel.appendChild(list);
+    panel.appendChild(counter);
 
     document.body.appendChild(panel);
+  }
+
+  function incrementCapturedCount() {
+    capturedCount += 1;
+    if (capturedCountEl) {
+      capturedCountEl.textContent = 'Captured: ' + capturedCount;
+    }
+  }
+
+  // Compute a lightweight, deterministic hash from a data URL string.
+  // We strip the "data:...," prefix and sample characters from the base64
+  // payload so we don't need to keep the whole blob in memory.
+  function computeDataHash(str) {
+    if (!str) return null;
+    const commaIdx = str.indexOf(',');
+    const base = commaIdx >= 0 ? str.slice(commaIdx + 1) : str;
+    if (!base.length) return null;
+    let hash = 0;
+    const step = Math.max(1, Math.floor(base.length / 128));
+    for (let i = 0; i < base.length; i += step) {
+      hash = (hash * 33 + base.charCodeAt(i)) | 0;
+    }
+    return 'h' + (hash >>> 0).toString(36);
+  }
+
+  // ---------------------------
+  // DOM observer to attach per-tile download buttons
+  // ---------------------------
+
+  function startDomObserver() {
+    if (domObserverStarted || !window.MutationObserver) return;
+    domObserverStarted = true;
+
+    const observer = new MutationObserver(() => {
+      try {
+        scanForImageTiles();
+      } catch (e) {
+        console.warn('[TM] Error while scanning for Grok tiles', e);
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    // Initial scan in case some tiles already exist.
+    scanForImageTiles();
+  }
+
+  function scanForImageTiles() {
+    // Use the existing "Make video" button as an anchor on each tile.
+    const videoButtons = document.querySelectorAll('button[aria-label="Make video"]');
+    videoButtons.forEach((btn) => {
+      attachOverlayToTile(btn);
+    });
+  }
+
+  function attachOverlayToTile(videoButton) {
+    if (!videoButton) return;
+
+    // Find the tile container that holds both the image and the bottom-right overlay.
+    // We look upwards until we find an ancestor that contains an <img alt="Generated image">.
+    let tile = videoButton.parentElement;
+    while (tile && !tile.querySelector('img[alt="Generated image"]')) {
+      tile = tile.parentElement;
+    }
+    if (!tile) return;
+
+    const img = tile.querySelector('img[alt="Generated image"]');
+    if (!img) return;
+
+    // Match by hash of the data URL used for this tile's <img src="...">.
+    const src = img.getAttribute('src') || '';
+    if (!src.startsWith('data:image')) return;
+
+    const srcHash = computeDataHash(src);
+    if (!srcHash) return;
+
+    const record =
+      discoveredImages.find((r) => r.dataHash && r.dataHash === srcHash) ||
+      null;
+
+    if (!record || !record.url) return;
+
+    if (tile.querySelector('.grok-image-download-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'grok-image-download-overlay';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Download';
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      triggerDownload(record);
+    });
+
+    overlay.appendChild(btn);
+    tile.appendChild(overlay);
+
+    // Optionally mark this record as no longer "unbound" if present in the queue.
+    const idx = unboundRecords.indexOf(record);
+    if (idx !== -1) {
+      unboundRecords.splice(idx, 1);
+    }
   }
 
   function buildFilename(record) {
@@ -326,6 +493,21 @@
   // downloaded file matches what Grok serves (size/format/metadata).
   function getDownloadUrl(record) {
     return record.url;
+  }
+
+  // Build a CDN image URL directly from an imageId. This is used as a
+  // fallback for manual per-tile downloads when we don't have a WebSocket
+  // record, so the button still works for images that were present before
+  // our WS hook saw any messages.
+  function buildUrlFromImageId(imageId) {
+    if (!imageId) return null;
+    // Grok URLs observed so far look like:
+    // https://imagine-public.x.ai/imagine-public/images/<imageId>.png
+    return (
+      'https://imagine-public.x.ai/imagine-public/images/' +
+      imageId +
+      '.png'
+    );
   }
 
   // Manual download (button click): prefer GM_download with the browser's
@@ -428,6 +610,14 @@
   function maybeAutoDownload(record) {
     if (!autoDownloadEnabled) return;
 
+    // Only auto-download when we have a "final-ish" image; intermediate
+    // progress frames (e.g. 0%, 50%) are ignored for auto-download.
+    if (typeof record.pct === 'number' && record.pct < 100) return;
+
+    // Avoid scheduling multiple downloads for the same image.
+    if (record.autoDownloaded || record.autoDownloadScheduled) return;
+    record.autoDownloadScheduled = true;
+
     // Delay auto-download slightly so the public image URL has time
     // to become available on the CDN. No retries or fallbacks – just
     // a one-time delay before attempting the download.
@@ -436,6 +626,7 @@
       if (!autoDownloadEnabled) return;
       try {
         triggerAutoDownload(record);
+        record.autoDownloaded = true;
       } catch (e) {
         console.warn('[TM] Auto-download failed', e);
       }
@@ -443,69 +634,19 @@
   }
 
   function addImageToList(record) {
+    // No-op: we no longer maintain a thumbnail list in the panel,
+    // but we keep this function name to avoid touching earlier logic.
     if (!document.body) return;
     ensurePanel();
-
-    const list = document.getElementById('grok-image-downloader-list');
-    if (!list) return;
-
-    const item = document.createElement('li');
-    item.className = 'grok-image-downloader-item';
-
-    const img = document.createElement('img');
-    img.className = 'grok-image-downloader-thumb';
-    // Populate the thumbnail slightly after capture. This gives Grok a bit
-    // of time to finish writing the blob/URL and avoids some "garbage" or
-    // placeholder thumbs that can appear when we read it too early.
-    const thumbDelayMs = 1500;
-    setTimeout(() => {
-      // If the panel or item has been removed in the meantime, abort.
-      if (!document.body.contains(item)) return;
-      // Prefer the base64 blob for thumbnails if provided; handle both raw
-      // base64 and full data URLs.
-      if (record.blob) {
-        if (typeof record.blob === 'string' && record.blob.startsWith('data:')) {
-          img.src = record.blob;
-        } else {
-          img.src = 'data:image/png;base64,' + record.blob;
-        }
-      } else {
-        img.src = record.url;
-      }
-    }, thumbDelayMs);
-    img.alt = record.prompt || 'Grok image';
-
-    const meta = document.createElement('div');
-    meta.className = 'grok-image-downloader-meta';
-
-    const promptEl = document.createElement('div');
-    promptEl.className = 'grok-image-downloader-prompt';
-    promptEl.textContent = record.prompt || '(no prompt)';
-
-    const actions = document.createElement('div');
-    actions.className = 'grok-image-downloader-actions';
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'grok-image-downloader-download';
-    btn.textContent = 'Download';
-    btn.addEventListener('click', () => {
-      triggerDownload(record);
-    });
-
-    actions.appendChild(btn);
-    meta.appendChild(promptEl);
-
-    item.appendChild(img);
-    item.appendChild(meta);
-    item.appendChild(actions);
-
-    list.insertBefore(item, list.firstChild);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', ensurePanel);
+    document.addEventListener('DOMContentLoaded', () => {
+      ensurePanel();
+      startDomObserver();
+    });
   } else {
     ensurePanel();
+    startDomObserver();
   }
 })();
