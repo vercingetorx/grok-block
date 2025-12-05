@@ -17,6 +17,6 @@ Both scripts replace autoscroll with an explicit button to generate more images.
 
 `image_downloader.js` adds download buttons so you never have to leave the main page and also provides an optional auto-download toggle.
 
-it is usually required to refresh the page once to activate the script(s) after first navigating to the imagine page. you can confirm it's running in the console.
+it is sometimes required to refresh the page once to activate the script(s) after first navigating to the imagine page. you can confirm it's running in the console.
 
 choose either `block_on_posts.js` or `block_everywhere.js`. `image_downloader.js` can be used in combination with either of the other scripts or on its own.
